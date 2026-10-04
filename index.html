@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d1323" />
+    <meta
+      name="description"
+      content="ماموریت ۳ ساله — اپلیکیشن کاهش مصرف و مقاومت در برابر اشتها"
+    />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>ماموریت ۳ ساله ❤️</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-badge">🔥</div>
+          <div>
+            <p class="eyebrow">زمینه‌ی پیروزی</p>
+            <h1>مأموریت ۳ ساله ❤️</h1>
+          </div>
+        </div>
+
+        <div class="countdown-card">
+          <span>زمان مانده تا هدف</span>
+          <strong id="timerText">--</strong>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="dashboard-grid">
+          <article class="stat-card accent">
+            <span>XP</span>
+            <strong id="xpValue">۰</strong>
+          </article>
+          <article class="stat-card">
+            <span>سطح</span>
+            <strong id="levelValue">۱</strong>
+          </article>
+          <article class="stat-card">
+            <span>استریک</span>
+            <strong id="streakValue">۰</strong>
+          </article>
+          <article class="stat-card">
+            <span>هدف امروز</span>
+            <strong id="goalValue">۰</strong>
+          </article>
+        </section>
+
+        <section class="campaign-hero panel">
+          <div>
+            <span class="phase-badge" id="campaignPhase">فاز ۱ · شروع قاطع</span>
+            <h2>روز <span id="campaignDay">۱</span> از ۵۲</h2>
+            <p id="missionHint">هدف امروز: رسیدن به آرامش و کاهش مصرف.</p>
+          </div>
+          <div class="progress-track" aria-label="پیشرفت مأموریت">
+            <div id="campaignProgressBar" class="progress-fill"></div>
+          </div>
+        </section>
+
+        <section class="main-grid">
+          <article class="panel mission-panel">
+            <div class="panel-header">
+              <h3>ماموریت روز</h3>
+              <span class="pill success" id="missionStatus">در حال انجام</span>
+            </div>
+            <p id="missionTitle" class="mission-title">...</p>
+            <button id="completeMissionBtn" class="primary-btn">تکمیل ماموریت</button>
+          </article>
+
+          <article class="panel tracker-panel">
+            <div class="panel-header">
+              <h3>ثبت مصرف / استفاده</h3>
+              <span class="pill neutral" id="todayUseLabel">امروز: ۰</span>
+            </div>
+
+            <label for="smokeInput">تعداد دفعات مصرف امروز</label>
+            <input id="smokeInput" type="number" min="0" value="0" />
+            <button id="logSmokeBtn" class="secondary-btn">ثبت مصرف</button>
+
+            <label class="range-label" for="cravingInput">سطح اشتها</label>
+            <input id="cravingInput" type="range" min="0" max="10" value="5" />
+            <div class="range-values"><span>کم</span><strong id="cravingValue">۵</strong><span>زیاد</span></div>
+            <button id="saveCravingBtn" class="secondary-btn">ثبت مقاومت</button>
+          </article>
+        </section>
+
+        <section class="main-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h3>منطقه‌های محرک</h3>
+              <span class="pill neutral">تغییر رفتار</span>
+            </div>
+            <div id="triggerList" class="trigger-list"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h3>Boss Fight</h3>
+              <span class="pill danger" id="bossName">استرس</span>
+            </div>
+            <div class="boss-health">
+              <span id="bossHealthBar"></span>
+            </div>
+            <p class="boss-note">رزمنده‌ی امروز: با هر مقاومت، باس ضعیف‌تر می‌شود.</p>
+            <button id="bossActionBtn" class="danger-btn">حمله به باس</button>
+          </article>
+        </section>
+
+        <section class="main-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <h3>رکوردهای شخصی</h3>
+              <span class="pill neutral">انگیزه</span>
+            </div>
+            <ul id="recordList" class="record-list"></ul>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <h3>دستاوردها</h3>
+              <span class="pill success">روزشمار</span>
+            </div>
+            <div id="achievementList" class="achievement-list"></div>
+          </article>
+        </section>
+
+        <section class="panel chart-panel">
+          <div class="panel-header">
+            <h3>آنالیتیکس مصرف</h3>
+            <span class="pill neutral">۷ روز اخیر</span>
+          </div>
+          <canvas id="chartCanvas" width="420" height="220" aria-label="نمودار مصرف"></canvas>
+        </section>
+      </main>
+
+      <footer class="footer-bar">
+        <button id="resetBtn" class="ghost-btn">بازنشانی داده‌ها</button>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
