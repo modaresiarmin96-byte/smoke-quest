@@ -1,0 +1,493 @@
+const STORAGE_KEY = "smoke-quest-state-v1";
+const TARGET_DATE = new Date("2026-11-18T00:00:00+03:30");
+const CAMPAIGN_START = new Date("2026-10-04T00:00:00+03:30");
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const defaultState = () => ({
+  xp: 0,
+  level: 1,
+  streak: 0,
+  streakBest: 0,
+  lastActiveDate: null,
+  dailyMission: {
+    date: "",
+    completed: false,
+    title: ""
+  },
+  smokeLog: [],
+  cravingLog: [],
+  triggerZones: [
+    { id: "stress", name: "استرس", goal: 3, score: 0 },
+    { id: "coffee", name: "قهوه", goal: 2, score: 0 },
+    { id: "friends", name: "دوستان", goal: 3, score: 0 },
+    { id: "night", name: "شب", goal: 2, score: 0 },
+    { id: "home", name: "خانه", goal: 2, score: 0 }
+  ],
+  boss: {
+    current: 0,
+    health: 100,
+    maxHealth: 100,
+    defeated: 0
+  },
+  records: {
+    bestResistance: 0,
+    lowestDailySmoke: 99,
+    longestStreak: 0
+  },
+  achievements: [
+    { id: "begin", title: "آغاز راه", unlocked: false },
+    { id: "streak", title: "استریک سه‌روزه", unlocked: false },
+    { id: "boss", title: "پیروزی در باس", unlocked: false },
+    { id: "fighter", title: "مقاومت ۱۰/۱۰", unlocked: false },
+    { id: "anniversary", title: "جشن سالگرد", unlocked: false }
+  ]
+});
+
+let state = null;
+
+function toPersianDigits(value) {
+  const map = { "0": "۰", "1": "۱", "2": "۲", "3": "۳", "4": "۴", "5": "۵", "6": "۶", "7": "۷", "8": "۸", "9": "۹" };
+  return String(value).replace(/[0-9]/g, (digit) => map[digit] || digit);
+}
+
+function formatCountdownDistance(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${toPersianDigits(days)} روز ${toPersianDigits(hours)} ساعت ${toPersianDigits(minutes)} دقیقه ${toPersianDigits(seconds)} ثانیه`;
+}
+
+function formatISODate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayKey(date = new Date()) {
+  return formatISODate(date);
+}
+
+function camelize(value) {
+  return String(value).trim();
+}
+
+function getCampaignDay(date = new Date()) {
+  const start = new Date(CAMPAIGN_START.getFullYear(), CAMPAIGN_START.getMonth(), CAMPAIGN_START.getDate());
+  const current = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diff = Math.floor((current - start) / DAY_MS);
+  return Math.min(52, Math.max(1, diff + 1));
+}
+
+function getCampaignPhase(day = getCampaignDay()) {
+  if (day <= 12) return { name: "فاز ۱ · شروع قاطع", progress: (day / 12) * 100 };
+  if (day <= 24) return { name: "فاز ۲ · عبور از آتش", progress: ((day - 12) / 12) * 100 };
+  if (day <= 38) return { name: "فاز ۳ · کاهش تدریجی", progress: ((day - 24) / 14) * 100 };
+  if (day <= 45) return { name: "فاز ۴ · تثبیت", progress: ((day - 38) / 7) * 100 };
+  return { name: "فاز ۵ · جشن پیروزی", progress: ((day - 45) / 7) * 100 };
+}
+
+function getDailyGoal(day = getCampaignDay()) {
+  const goal = Math.max(0, Math.round(12 - (day - 1) * 0.22));
+  return goal;
+}
+
+function missionByDay(day) {
+  const options = [
+    "امروز ۱۰ دقیقه تمرین تنفس و آرامش قبل از اول وقت مصرف را انجام بده.",
+    "یک بار از منطقه‌ی محرک خارج شو و ۱۵ دقیقه پیاده‌روی کوتاه انجام بده.",
+    "در هر لحظه‌ی فشار، به‌جای مصرف، ۳ نفس عمیق و ۲ دقیقه سکوت بگیر.",
+    "برای ۱۰ دقیقه به خودت اجازه بده بدون وابستگی، روی خواب و آب میوه تمرکز کنی.",
+    "از آخرین مصرف‌نامه‌ات ۱ قدم فاصله بگیر و هدف امروز فقط یک «نه» قاطع باشد.",
+    "برای هر بار اشتها، یک عمل جسمی: آب، راه رفتن، یا شست‌وشو انجام بده."
+  ];
+  return options[(day - 1) % options.length];
+}
+
+function ensureDailyMission() {
+  const today = getTodayKey();
+  if (!state.dailyMission || state.dailyMission.date !== today) {
+    const day = getCampaignDay();
+    state.dailyMission = {
+      date: today,
+      completed: false,
+      title: missionByDay(day)
+    };
+  }
+}
+
+function loadState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    state = defaultState();
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    state = { ...defaultState(), ...parsed };
+    state.achievements = [...defaultState().achievements.map((a) => ({ ...a, ...(parsed.achievements || []).find((item) => item.id === a.id) || {} }))];
+    state.triggerZones = [...(parsed.triggerZones || defaultState().triggerZones)];
+    state.boss = { ...defaultState().boss, ...(parsed.boss || {}) };
+    state.records = { ...defaultState().records, ...(parsed.records || {}) };
+    state.smokeLog = Array.isArray(parsed.smokeLog) ? parsed.smokeLog : [];
+    state.cravingLog = Array.isArray(parsed.cravingLog) ? parsed.cravingLog : [];
+    state.dailyMission = parsed.dailyMission || defaultState().dailyMission;
+  } catch (error) {
+    console.warn("State parse failed. Resetting local data.", error);
+    state = defaultState();
+  }
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function updateAchievements() {
+  const achievementMap = new Map((state.achievements || []).map((item) => [item.id, item]));
+  achievementMap.get("begin").unlocked = state.xp >= 50 || state.smokeLog.length > 0;
+  achievementMap.get("streak").unlocked = state.streak >= 3;
+  achievementMap.get("boss").unlocked = state.boss.defeated >= 1;
+  achievementMap.get("fighter").unlocked = state.records.bestResistance >= 10;
+  achievementMap.get("anniversary").unlocked = getCampaignDay() >= 52 || (Date.now() >= TARGET_DATE.getTime());
+
+  state.achievements = Array.from(achievementMap.values());
+}
+
+function getStatusText() {
+  const campaign = getCampaignPhase();
+  return `${campaign.name} · روز ${toPersianDigits(getCampaignDay())}`;
+}
+
+function awardXp(amount) {
+  state.xp += amount;
+  state.level = Math.max(1, Math.floor(Math.sqrt(state.xp / 80)) + 1);
+  updateAchievements();
+}
+
+function updateStreaks() {
+  const today = getTodayKey();
+  if (!state.lastActiveDate) {
+    state.lastActiveDate = today;
+    state.streak = 1;
+    state.records.longestStreak = 1;
+    return;
+  }
+
+  const diffDays = Math.floor((new Date(today) - new Date(state.lastActiveDate)) / DAY_MS);
+  if (diffDays === 0) {
+    return;
+  }
+
+  if (diffDays === 1) {
+    state.streak += 1;
+  } else if (diffDays > 1) {
+    state.streak = 1;
+  }
+
+  state.lastActiveDate = today;
+  state.records.longestStreak = Math.max(state.records.longestStreak, state.streak);
+}
+
+function addSmokeEntry(value) {
+  const count = Math.max(0, Number(value) || 0);
+  state.smokeLog.push({
+    date: getTodayKey(),
+    count,
+    resistance: state.records.bestResistance || 0
+  });
+
+  state.records.lowestDailySmoke = Math.min(state.records.lowestDailySmoke, count);
+  const todaySmoke = state.smokeLog.filter((item) => item.date === getTodayKey()).reduce((sum, item) => sum + item.count, 0);
+  if (todaySmoke <= getDailyGoal()) {
+    awardXp(18);
+  } else {
+    awardXp(6);
+  }
+
+  saveState();
+}
+
+function recordCraving(value) {
+  const safeValue = Math.min(10, Math.max(0, Number(value) || 0));
+  state.cravingLog.push({ date: getTodayKey(), value: safeValue });
+  state.records.bestResistance = Math.max(state.records.bestResistance, 10 - safeValue);
+  if (safeValue <= 5) {
+    awardXp(12);
+  }
+  saveState();
+}
+
+function completeMission() {
+  if (state.dailyMission.date === getTodayKey() && state.dailyMission.completed) {
+    return;
+  }
+  state.dailyMission.completed = true;
+  awardXp(35);
+  updateStreaks();
+  state.streakBest = Math.max(state.streakBest, state.streak);
+  saveState();
+}
+
+function attackBoss() {
+  const attackValue = 18 + Math.min(10, state.records.bestResistance);
+  state.boss.health = Math.max(0, state.boss.health - attackValue);
+
+  if (state.boss.health === 0) {
+    state.boss.defeated += 1;
+    state.boss.health = state.boss.maxHealth;
+    state.boss.current = (state.boss.current + 1) % 4;
+    awardXp(55);
+    state.records.bestResistance = Math.max(state.records.bestResistance, 8);
+  }
+
+  saveState();
+}
+
+function incrementTrigger(id) {
+  const zone = state.triggerZones.find((entry) => entry.id === id);
+  if (!zone) return;
+  zone.score = Math.min(zone.goal + 1, zone.score + 1);
+  awardXp(8);
+  saveState();
+}
+
+function renderTriggerList() {
+  const container = document.getElementById("triggerList");
+  if (!container) return;
+
+  container.innerHTML = state.triggerZones.map((zone) => `
+    <div class="trigger-item">
+      <div class="trigger-meta">
+        <strong>${zone.name}</strong>
+        <span>هدف: ${toPersianDigits(zone.goal)}</span>
+      </div>
+      <div class="trigger-actions">
+        <button class="trigger-btn" data-trigger="${zone.id}" data-action="decrease" aria-label="کم‌کردن">−</button>
+        <span class="trigger-score">${toPersianDigits(zone.score)}</span>
+        <button class="trigger-btn" data-trigger="${zone.id}" data-action="increase" aria-label="افزایش">＋</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderAchievements() {
+  const container = document.getElementById("achievementList");
+  if (!container) return;
+
+  container.innerHTML = state.achievements.map((achievement) => `
+    <div class="achievement-item ${achievement.unlocked ? "active" : ""}">
+      <strong>${achievement.title}</strong>
+      <span>${achievement.unlocked ? "باز شده" : "قفل شده"}</span>
+    </div>
+  `).join("");
+}
+
+function renderRecords() {
+  const list = document.getElementById("recordList");
+  if (!list) return;
+
+  const entries = [
+    ["بهترین مقاومت", `${toPersianDigits(state.records.bestResistance)}/۱۰`],
+    ["کمترین مصرف روزانه", `${toPersianDigits(state.records.lowestDailySmoke)}`],
+    ["طولانی‌ترین استریک", `${toPersianDigits(state.records.longestStreak)} روز`],
+    ["باس‌های شکست‌خورده", `${toPersianDigits(state.boss.defeated)}`]
+  ];
+
+  list.innerHTML = entries.map(([label, value]) => `<li><span>${label}</span><strong>${value}</strong></li>`).join("");
+}
+
+function drawChart() {
+  const canvas = document.getElementById("chartCanvas");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+  const days = [];
+
+  for (let i = 6; i >= 0; i -= 1) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const key = getTodayKey(date);
+    const value = state.smokeLog.filter((entry) => entry.date === key).reduce((sum, item) => sum + item.count, 0);
+    days.push({ label: `${date.getDate()}`, value });
+  }
+
+  const maxValue = Math.max(6, ...days.map((item) => item.value));
+  const chartPadding = 24;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#0a1019";
+  ctx.fillRect(0, 0, width, height);
+
+  for (let i = 0; i <= 4; i += 1) {
+    const y = chartPadding + ((height - chartPadding * 2) / 4) * i;
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(chartPadding, y);
+    ctx.lineTo(width - chartPadding, y);
+    ctx.stroke();
+  }
+
+  const barWidth = ((width - chartPadding * 2) / days.length) * 0.6;
+  days.forEach((day, index) => {
+    const x = chartPadding + index * ((width - chartPadding * 2) / days.length) + 8;
+    const barHeight = (day.value / maxValue) * (height - chartPadding * 2);
+    const y = height - chartPadding - barHeight;
+
+    ctx.fillStyle = index === days.length - 1 ? "#59d3ff" : "#8a7dff";
+    ctx.fillRect(x, y, barWidth, barHeight);
+
+    ctx.fillStyle = "#dfeaf8";
+    ctx.font = "11px Tahoma";
+    ctx.fillText(toPersianDigits(day.label), x + 3, height - 8);
+  });
+}
+
+function refreshCounts() {
+  const day = getCampaignDay();
+  const goal = getDailyGoal(day);
+  const todayUse = state.smokeLog.filter((entry) => entry.date === getTodayKey()).reduce((sum, item) => sum + item.count, 0);
+  const cravingValue = state.cravingLog.filter((entry) => entry.date === getTodayKey()).reduce((sum, item) => sum + item.value, 0);
+  const averageCraving = cravingValue > 0 ? Math.round((cravingValue / Math.max(1, state.cravingLog.filter((log) => log.date === getTodayKey()).length))) : 0;
+
+  document.getElementById("xpValue").textContent = toPersianDigits(state.xp);
+  document.getElementById("levelValue").textContent = toPersianDigits(state.level);
+  document.getElementById("streakValue").textContent = toPersianDigits(state.streak);
+  document.getElementById("goalValue").textContent = `${toPersianDigits(goal)} نخ`;
+  document.getElementById("campaignDay").textContent = toPersianDigits(day);
+  document.getElementById("todayUseLabel").textContent = `امروز: ${toPersianDigits(todayUse)}`;
+  document.getElementById("missionHint").textContent = `هدف امروز: ${goal === 0 ? "صفر مصرف و حفظ آرامش" : `کاهش به ${toPersianDigits(goal)} نخ در روز`}.`;
+  document.getElementById("missionTitle").textContent = state.dailyMission.title || missionByDay(day);
+  document.getElementById("missionStatus").textContent = state.dailyMission.completed ? "تکمیل شد" : "در حال انجام";
+  document.getElementById("cravingValue").textContent = toPersianDigits(Math.min(10, Math.max(0, averageCraving || 5)));
+
+  const phaseData = getCampaignPhase(day);
+  document.getElementById("campaignPhase").textContent = phaseData.name;
+  const progressPercent = Math.min(100, Math.max(0, phaseData.progress));
+  document.getElementById("campaignProgressBar").style.width = `${progressPercent}%`;
+
+  const bossHealthPercent = (state.boss.health / state.boss.maxHealth) * 100;
+  document.getElementById("bossHealthBar").style.width = `${bossHealthPercent}%`;
+  document.getElementById("bossName").textContent = ["استرس", "خستگی", "جریان خستگی", "الگوی شبانه"][state.boss.current] || "استرس";
+
+  const timerText = document.getElementById("timerText");
+  const remaining = TARGET_DATE.getTime() - Date.now();
+  timerText.textContent = formatCountdownDistance(remaining);
+}
+
+function render() {
+  ensureDailyMission();
+  updateAchievements();
+  renderTriggerList();
+  renderAchievements();
+  renderRecords();
+  refreshCounts();
+  drawChart();
+
+  const cravingInput = document.getElementById("cravingInput");
+  if (cravingInput) {
+    cravingInput.value = state.cravingLog.filter((log) => log.date === getTodayKey()).length
+      ? String(Math.max(0, Math.min(10, Math.round(
+          state.cravingLog
+            .filter((log) => log.date === getTodayKey())
+            .reduce((sum, item) => sum + item.value, 0) /
+            Math.max(1, state.cravingLog.filter((log) => log.date === getTodayKey()).length)
+        ))))
+      : "5";
+  }
+}
+
+function bindEvents() {
+  document.getElementById("completeMissionBtn").addEventListener("click", () => {
+    completeMission();
+    render();
+  });
+
+  document.getElementById("logSmokeBtn").addEventListener("click", () => {
+    const input = document.getElementById("smokeInput");
+    addSmokeEntry(Number(input.value) || 0);
+    input.value = "0";
+    render();
+  });
+
+  document.getElementById("saveCravingBtn").addEventListener("click", () => {
+    const input = document.getElementById("cravingInput");
+    recordCraving(Number(input.value) || 0);
+    render();
+  });
+
+  document.getElementById("bossActionBtn").addEventListener("click", () => {
+    attackBoss();
+    render();
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    const confirmed = confirm("آیا مطمئن هستید که می‌خواهید داده‌ها را ریست کنید؟");
+    if (!confirmed) return;
+    localStorage.removeItem(STORAGE_KEY);
+    state = defaultState();
+    render();
+  });
+
+  document.getElementById("cravingInput").addEventListener("input", (event) => {
+    document.getElementById("cravingValue").textContent = toPersianDigits(Number(event.target.value));
+  });
+
+  document.getElementById("triggerList").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-trigger]");
+    if (!button) return;
+    const id = button.dataset.trigger;
+    const action = button.dataset.action;
+    const zone = state.triggerZones.find((entry) => entry.id === id);
+    if (!zone) return;
+    if (action === "increase") {
+      zone.score = Math.min(zone.goal + 1, zone.score + 1);
+    } else {
+      zone.score = Math.max(0, zone.score - 1);
+    }
+    awardXp(5);
+    saveState();
+    render();
+  });
+
+  document.getElementById("smokeInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      document.getElementById("logSmokeBtn").click();
+    }
+  });
+}
+
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("./sw.js");
+    console.log("Service worker registered.");
+  } catch (error) {
+    console.warn("Service worker registration failed.", error);
+  }
+}
+
+function init() {
+  loadState();
+  ensureDailyMission();
+  updateAchievements();
+  bindEvents();
+  render();
+  registerServiceWorker();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+
+window.smokeQuestApp = {
+  state,
+  getCampaignDay,
+  getDailyGoal,
+  render,
+  saveState,
+  loadState,
+  registerServiceWorker
+};
